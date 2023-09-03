@@ -1,9 +1,22 @@
+#include <errno.h>
 #include <search.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
+#include <string.h>
 
+#define VERSION "0.1.0"
 //#define DEBUG 1
+void usage(const char* cmd) {
+  	fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
+usage: %s [subcommand [stopafter]] FASTQ_FILE\n\
+\tsubcommand: lengths | median | count\n\
+\tstopafter:  only judge this many entries\n\
+\n\
+fastq-lengths lengths 100 example.fq\n\
+32  1\n\
+150 99\n", VERSION, cmd);
+}
+enum subcommand { LENGTHS, MEDIAN, COUNT };
 
 long long med_seq = 0;
 long median = 0;
@@ -23,7 +36,6 @@ void print_node(const void *ptr, VISIT order, __attribute__((unused)) int level)
 	printf("%li\t%li\n", el->length, el->count);
   }
 }
-
 void find_median(const void *ptr, VISIT order, __attribute__((unused)) int level) {
   if (!median && (order == postorder || order == leaf)) {
 	const length_el *el = *(const length_el **)ptr;
@@ -33,13 +45,33 @@ void find_median(const void *ptr, VISIT order, __attribute__((unused)) int level
 }
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
-	fprintf(stderr, "usage: %s FASTQ_FILE\n", argv[0]);
-	exit(EINVAL);
+  long long stop_after = -1;
+  enum subcommand cmd = LENGTHS;
+  switch (argc) {
+  case 4: // subcommand firstN fastqfile
+	if (sscanf(argv[2], "%lli", &stop_after) != 1) {
+	  usage(argv[0]); exit(EINVAL);
+	}
+	[[fallthrough]];
+  case 3: // subcommand fastqfile
+	if (strncmp("median", argv[1], 3) == 0)
+	  cmd = MEDIAN;
+	else if (strncmp("count", argv[1], 3) == 0)
+	  cmd = COUNT;
+	else // omitting 'lengths' when specifying <stopafter> is not supported.
+	  cmd = LENGTHS;
+	break;
+  case 2: // fastqfile
+	break;
+  default:
+	usage(argv[0]); exit(EINVAL);
   }
-  FILE *fq = fopen(argv[1], "r");
-  if (fq == NULL)
+  FILE *fq = fopen(argv[argc - 1], "r");
+  if (fq == NULL) {
+	fprintf(stderr, "%s does not exist or cannot be opened.\n", argv[argc - 1]);
+	usage(argv[0]);
 	exit(errno);
+  }
 
   void *seq_lengths = NULL;
   length_el *element_ptr;
@@ -64,9 +96,6 @@ int main(int argc, char** argv) {
 	while ((c = (char)fgetc(fq)) != EOF && c != '+')
 	  if (c == '\n') newlines++; else seq_len++;
 
-#ifdef DEBUG
-	printf("sequence length: %li\n", seq_len);
-#endif
 	// Update Counts
 	total_seqs++;
 	if (seq_len != last_seq_len) {
@@ -89,7 +118,8 @@ int main(int argc, char** argv) {
 	// +[<seqname>] (+ already consumed)
 	while ((c = (char)fgetc(fq)) != EOF && c != '\n');
 	// <qual>
-  } while (!feof(fq) && fseek(fq, seq_len + newlines, SEEK_CUR) == 0);
+  } while (!feof(fq) && (total_seqs != stop_after) &&
+		   fseek(fq, seq_len + newlines, SEEK_CUR) == 0);
 
   if (ferror(fq)) {
 	fprintf(stderr, "error %i occurred while parsing %s", ferror(fq), argv[1]);
@@ -97,9 +127,18 @@ int main(int argc, char** argv) {
   }
   fclose(fq);
 
-  twalk(seq_lengths, print_node);
-  //med_seq = total_seqs / 2;
-  //twalk(seq_lengths, find_median);
-  //printf("%li", median);
+  switch (cmd) {
+  case LENGTHS:
+	twalk(seq_lengths, print_node);
+	break;
+  case MEDIAN:
+	med_seq = total_seqs / 2;
+	twalk(seq_lengths, find_median);
+	printf("%li", median);
+	break;
+  case COUNT: // COUNT
+	printf("%lli", total_seqs);
+	break;
+  }
   return 0;
 }
