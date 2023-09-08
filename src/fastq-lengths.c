@@ -9,17 +9,18 @@
 void usage(const char* cmd) {
   	fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
 usage: %s [subcommand [stopafter]] FASTQ_FILE\n\
-\tsubcommand: lengths | median | count\n\
+\tsubcommand: lengths | median | count | summary\n\
 \tstopafter:  only judge this many entries\n\
 \n\
 fastq-lengths lengths 100 example.fq\n\
 32  1\n\
 150 99\n", VERSION, cmd);
 }
-enum subcommand { LENGTHS, MEDIAN, COUNT };
+enum subcommand { LENGTHS, MEDIAN, COUNT, SUMMARY };
 
 long long med_seq = 0;
 long median = 0;
+long num_nodes = 0;
 
 typedef struct length_el {
   long length;
@@ -33,12 +34,14 @@ int node_compare(const void *node1, const void *node2) {
 void print_node(const void *ptr, VISIT order, __attribute__((unused)) int level) {
   if (order == postorder || order == leaf) {
 	const length_el *el = *(const length_el **)ptr;
+	num_nodes++;
 	printf("%li\t%li\n", el->length, el->count);
   }
 }
 void find_median(const void *ptr, VISIT order, __attribute__((unused)) int level) {
   if (!median && (order == postorder || order == leaf)) {
 	const length_el *el = *(const length_el **)ptr;
+	num_nodes++;
 	if ((med_seq -= el->count) <= 0)
 	  median = el->length;
   }
@@ -58,6 +61,8 @@ int main(int argc, char** argv) {
 	  cmd = MEDIAN;
 	else if (strncmp("count", argv[1], 3) == 0)
 	  cmd = COUNT;
+	else if (strncmp("summary", argv[1], 3) == 0)
+	  cmd = SUMMARY;
 	else // omitting 'lengths' when specifying <stopafter> is not supported.
 	  cmd = LENGTHS;
 	break;
@@ -134,10 +139,15 @@ int main(int argc, char** argv) {
   case MEDIAN:
 	med_seq = total_seqs / 2;
 	twalk(seq_lengths, find_median);
-	printf("%li", median);
+	printf("%li\n", median);
 	break;
   case COUNT: // COUNT
-	printf("%lli", total_seqs);
+	printf("%lli\n", total_seqs);
+	break;
+  case SUMMARY:
+	med_seq = total_seqs / 2;
+	twalk(seq_lengths, find_median);
+	printf("%li\t%li\t%lli\n", median, num_nodes, total_seqs);
 	break;
   }
   return 0;
