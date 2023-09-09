@@ -7,7 +7,7 @@ BIN=./bin
 BIN_STATIC=$(BIN)/x86_64
 NAME=fastq-lengths
 
-CFLAGS=-O3 -Wextra -Wall -Wconversion -std=c2x -mtune=native
+CFLAGS=-O3 -Wextra -Wall -Wconversion -std=c1x -mtune=native
 CFLAGS_STATIC=$(CFLAGS) -static -fdata-sections -ffunction-sections -Wl,--gc-sections -s -march=x86-64 -mtune=generic
 INSTALL=install
 INSTALL_PROGRAM=$(INSTALL)

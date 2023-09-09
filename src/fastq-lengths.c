@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSION "0.1.0"
+#define VERSION "0.1.2"
 //#define DEBUG 1
 void usage(const char* cmd) {
   	fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
@@ -16,7 +16,7 @@ fastq-lengths lengths 100 example.fq\n\
 32  1\n\
 150 99\n", VERSION, cmd);
 }
-enum subcommand { LENGTHS, MEDIAN, COUNT, SUMMARY };
+enum subcommand { LENGTHS, MEDIAN, SUMMARY, COUNT };
 
 long long med_seq = 0;
 long median = 0;
@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
 	if (sscanf(argv[2], "%lli", &stop_after) != 1) {
 	  usage(argv[0]); exit(EINVAL);
 	}
-	[[fallthrough]];
+	__attribute__((fallthrough));
   case 3: // subcommand fastqfile
 	if (strncmp("median", argv[1], 3) == 0)
 	  cmd = MEDIAN;
@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
 	} else {
 	  (*(length_el **)node)->count++;
 	}
-	
+
 	// +[<seqname>] (+ already consumed)
 	while ((c = (char)fgetc(fq)) != EOF && c != '\n');
 	// <qual>
