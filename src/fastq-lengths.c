@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSION "0.1.2"
+#define VERSION "0.2.0"
 //#define DEBUG 1
 void usage(const char* cmd) {
   	fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
@@ -71,7 +71,11 @@ int main(int argc, char** argv) {
   default:
 	usage(argv[0]); exit(EINVAL);
   }
-  FILE *fq = fopen(argv[argc - 1], "r");
+  FILE *fq;
+  if (strncmp("-", argv[argc - 1], 2) == 0)
+	fq = stdin;
+  else
+  	fq = fopen(argv[argc - 1], "r");
   if (fq == NULL) {
 	fprintf(stderr, "%s does not exist or cannot be opened.\n", argv[argc - 1]);
 	usage(argv[0]);
@@ -123,11 +127,13 @@ int main(int argc, char** argv) {
 	// +[<seqname>] (+ already consumed)
 	while ((c = (char)fgetc(fq)) != EOF && c != '\n');
 	// <qual>
-  } while (!feof(fq) && (total_seqs != stop_after) &&
-		   fseek(fq, seq_len + newlines, SEEK_CUR) == 0);
+	long skip = seq_len + newlines;
+	while (skip--) (void)fgetc(fq);
+  } while (!feof(fq) && (total_seqs != stop_after));
 
-  if (ferror(fq)) {
-	fprintf(stderr, "error %i occurred while parsing %s", ferror(fq), argv[1]);
+  if (ferror(fq) || errno) {
+	fprintf(stderr, "error: %i (errno %i) occurred while parsing %s",
+			ferror(fq), errno, argv[1]);
 	exit(1);
   }
   fclose(fq);
