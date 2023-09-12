@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSION "0.2.0"
+#define VERSION "0.2.1"
 //#define DEBUG 1
 void usage(const char* cmd) {
   	fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
@@ -86,6 +86,7 @@ int main(int argc, char** argv) {
   length_el *element_ptr;
   void *node = NULL;
 
+  long long pos = 0;
   long long total_seqs = 0;
   long seq_len = 0;
   long last_seq_len = -1;
@@ -96,15 +97,17 @@ int main(int argc, char** argv) {
 	// @<seqname>
 	if (fgetc(fq) != '@') {
 	  if (feof(fq)) break;
-	  fprintf(stderr, "error: expected @<seqname> line (pos %li): %s\n",
-			  ftell(fq), argv[1]);
+	  fprintf(stderr, "error: expected @<seqname> line (pos %lli): %s\n",
+			  pos, argv[argc - 1]);
 	  exit(1);
 	}
-	while ((c = (char)fgetc(fq)) != EOF && c != '\n');
+	pos++;
+	do pos++; while ((c = (char)fgetc(fq)) != EOF && c != '\n');
 	// <seq>
 	while ((c = (char)fgetc(fq)) != EOF && c != '+')
 	  if (c == '\n') newlines++; else seq_len++;
-
+	pos += newlines + seq_len + 1;
+	
 	// Update Counts
 	total_seqs++;
 	if (seq_len != last_seq_len) {
@@ -125,10 +128,12 @@ int main(int argc, char** argv) {
 	}
 
 	// +[<seqname>] (+ already consumed)
-	while ((c = (char)fgetc(fq)) != EOF && c != '\n');
+	do pos++; while ((c = (char)fgetc(fq)) != EOF && c != '\n');
+
 	// <qual>
 	long skip = seq_len + newlines;
 	while (skip--) (void)fgetc(fq);
+	pos += seq_len + newlines;
   } while (!feof(fq) && (total_seqs != stop_after));
 
   if (ferror(fq) || errno) {
@@ -153,7 +158,8 @@ int main(int argc, char** argv) {
   case SUMMARY:
 	med_seq = total_seqs / 2;
 	twalk(seq_lengths, find_median);
-	printf("%li\t%li\t%lli\n", median, num_nodes, total_seqs);
+	//MEDIAN, UNIQUES, TOTAL SEQS, BYTES READ 
+	printf("%li\t%li\t%lli\t%lli\n", median, num_nodes, total_seqs, pos);
 	break;
   }
   return 0;
