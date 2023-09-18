@@ -4,10 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSION "0.2.5"
+#define VERSION "0.2.6"
 //#define DEBUG 1
 void usage(const char* cmd) {
-  	fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
+  fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
 usage: %s [subcommand [stopafter]] FASTQ_FILE\n\
 \tsubcommand: lengths | median | count | summary\n\
 \tstopafter:  only judge this many entries\n\
@@ -33,98 +33,104 @@ int node_compare(const void *node1, const void *node2) {
 }
 void print_node(const void *ptr, VISIT order, __attribute__((unused)) int level) {
   if (order == postorder || order == leaf) {
-	const length_el *el = *(const length_el **)ptr;
-	num_nodes++;
-	printf("%li\t%li\n", el->length, el->count);
+    const length_el *el = *(const length_el **)ptr;
+    num_nodes++;
+    printf("%li\t%li\n", el->length, el->count);
   }
 }
 void find_median(const void *ptr, VISIT order, __attribute__((unused)) int level) {
   if (!median && (order == postorder || order == leaf)) {
-	const length_el *el = *(const length_el **)ptr;
-	num_nodes++;
-	if ((med_seq -= el->count) <= 0)
-	  median = el->length;
+    const length_el *el = *(const length_el **)ptr;
+    num_nodes++;
+    if ((med_seq -= el->count) <= 0)
+      median = el->length;
   }
 }
 
-inline int nextchar(char *restrict buf, char **nextc, char **end, const size_t
-					bufsize, FILE *restrict fp) {
+
+long long page_ofs = -1;
+inline long long _pos(char *buf, const size_t bufsize, const char *nextc) {
+  return page_ofs * (long long)bufsize + (nextc - buf);
+}
+inline int nextchar(char *buf, char **nextc, char **end, const size_t
+                    bufsize, FILE *fp) {
   if (*nextc == *end) {
-	size_t count = fread(buf, 1, bufsize, fp);
-	if (count <= 0)
-	  return EOF;
-	*end = buf + count;
-	*nextc = buf;
+    size_t count = fread(buf, 1, bufsize, fp);
+    if (count <= 0)
+      return EOF;
+    page_ofs++;
+    *end = buf + count;
+    *nextc = buf;
   }
   char c = **nextc;
   (*nextc)++;
   return c;
 }
 inline int skip(long skipn, char *restrict buf, char **nextc, char **end, const size_t
-				bufsize, FILE *restrict fp) {
+                bufsize, FILE *restrict fp) {
   (*nextc) += skipn - 1;
   if (*nextc >= *end) {
-	size_t count = fread(buf, 1, bufsize, fp);
-	if (count <= 0)
-	  return EOF;
-	skipn = *nextc - *end;
-	*end = buf + count;
-	*nextc = buf;
-	return skip(skipn + 1, buf, nextc, end, bufsize, fp);
+    size_t count = fread(buf, 1, bufsize, fp);
+    if (count <= 0)
+      return EOF;
+    page_ofs++;
+    skipn = *nextc - *end;
+    *end = buf + count;
+    *nextc = buf;
+    return skip(skipn + 1, buf, nextc, end, bufsize, fp);
   }
   char c = **nextc;
   (*nextc)++;
   return c;
-}  
+}
 
 int main(int argc, char** argv) {
   const size_t BUFSIZE = 16 * 1024;
   char *const buf = malloc(BUFSIZE);
   char *end = buf; char *nextc = buf;
   if (buf == NULL) {
-	fprintf(stderr, "could not allocate buffer!");
-	exit(errno);
+    fprintf(stderr, "could not allocate buffer!");
+    exit(errno);
   }
 
   long long stop_after = -1;
   enum subcommand cmd = LENGTHS;
   switch (argc) {
   case 4: // subcommand firstN fastqfile
-	if (sscanf(argv[2], "%lli", &stop_after) != 1) {
-	  usage(argv[0]); exit(EINVAL);
-	}
-	__attribute__((fallthrough));
+    if (sscanf(argv[2], "%lli", &stop_after) != 1) {
+      usage(argv[0]); exit(EINVAL);
+    }
+    __attribute__((fallthrough));
   case 3: // subcommand fastqfile
-	if (strncmp("median", argv[1], 3) == 0)
-	  cmd = MEDIAN;
-	else if (strncmp("count", argv[1], 3) == 0)
-	  cmd = COUNT;
-	else if (strncmp("summary", argv[1], 3) == 0)
-	  cmd = SUMMARY;
-	else // omitting 'lengths' when specifying <stopafter> is not supported.
-	  cmd = LENGTHS;
-	break;
+    if (strncmp("median", argv[1], 3) == 0)
+      cmd = MEDIAN;
+    else if (strncmp("count", argv[1], 3) == 0)
+      cmd = COUNT;
+    else if (strncmp("summary", argv[1], 3) == 0)
+      cmd = SUMMARY;
+    else // omitting 'lengths' when specifying <stopafter> is not supported.
+      cmd = LENGTHS;
+    break;
   case 2: // fastqfile
-	break;
+    break;
   default:
-	usage(argv[0]); exit(EINVAL);
+    usage(argv[0]); exit(EINVAL);
   }
   FILE *fq;
   if (strncmp("-", argv[argc - 1], 2) == 0)
-	fq = stdin;
+    fq = stdin;
   else
-  	fq = fopen(argv[argc - 1], "r");
+    fq = fopen(argv[argc - 1], "r");
   if (fq == NULL) {
-	fprintf(stderr, "%s does not exist or cannot be opened.\n", argv[argc - 1]);
-	usage(argv[0]);
-	exit(errno);
+    fprintf(stderr, "%s does not exist or cannot be opened.\n", argv[argc - 1]);
+    usage(argv[0]);
+    exit(errno);
   }
 
   void *seq_lengths = NULL;
   length_el *element_ptr;
   void *node = NULL;
 
-  long long pos = 0;
   long long total_seqs = 0;
   long seq_len = 0;
   long last_seq_len = -1;
@@ -133,19 +139,17 @@ int main(int argc, char** argv) {
   do {
 	seq_len = 0; newlines = 0;
 	// @<seqname>
-	if (nextchar(buf, &nextc, &end, BUFSIZE, fq) != '@') {
-	  if (feof(fq)) break;
+	if ((c = nextchar(buf, &nextc, &end, BUFSIZE, fq)) != '@') {
+	  if (c == EOF) break;
 	  fprintf(stderr, "error: expected @<seqname> line (pos %lli): %s\n",
-			  pos, argv[argc - 1]);
+			  _pos(buf, BUFSIZE, nextc), argv[argc - 1]);
 	  exit(1);
 	}
-	pos++;
-	do pos++; while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
+	while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
 	// <seq>
 	while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '+')
 	  if (c == '\n') newlines++; else seq_len++;
-	pos += newlines + seq_len + 1;
-	
+
 	// Update Counts
 	total_seqs++;
 	if (seq_len != last_seq_len) {
@@ -166,11 +170,10 @@ int main(int argc, char** argv) {
 	}
 
 	// +[<seqname>] (+ already consumed)
-	do pos++; while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
+	while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
 
 	// <qual>
 	c = skip(seq_len + newlines, buf, &nextc, &end, BUFSIZE, fq);
-	pos += seq_len + newlines;
   } while (c != EOF && (total_seqs != stop_after));
 
   if (ferror(fq) || errno) {
@@ -196,7 +199,7 @@ int main(int argc, char** argv) {
 	med_seq = total_seqs / 2;
 	twalk(seq_lengths, find_median);
 	//MEDIAN, UNIQUES, TOTAL SEQS, BYTES READ 
-	printf("%li\t%li\t%lli\t%lli\n", median, num_nodes, total_seqs, pos);
+	printf("%li\t%li\t%lli\t%lli\n", median, num_nodes, total_seqs, _pos(buf, BUFSIZE, nextc));
 	break;
   }
   return 0;
