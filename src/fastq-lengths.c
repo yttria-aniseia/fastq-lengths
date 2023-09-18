@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSION "0.2.7"
+#define VERSION "0.2.8"
 //#define DEBUG 1
 void usage(const char* cmd) {
   fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
@@ -54,15 +54,21 @@ inline long long _pos(char *buf, const size_t bufsize, const char *nextc) {
 	return 0;
   return page_ofs * (long long)bufsize + (nextc - buf);
 }
-inline int nextchar(char *buf, char **nextc, char **end, const size_t
-                    bufsize, FILE *fp) {
-  if (*nextc == *end) {
+inline size_t readmore(char *buf, char **nextc, char **end, const size_t bufsize,
+					FILE *fp) {
     size_t count = fread(buf, 1, bufsize, fp);
     if (count <= 0)
-      return EOF;
+      return count;
     page_ofs++;
     *end = buf + count;
     *nextc = buf;
+	return count;
+}
+inline int nextchar(char *buf, char **nextc, char **end, const size_t
+                    bufsize, FILE *fp) {
+  if (*nextc == *end) {
+    if (readmore(buf, nextc, end, bufsize, fp) <= 0)
+	  return EOF;
   }
   char c = **nextc;
   (*nextc)++;
@@ -72,18 +78,25 @@ inline int skip(long skipn, char *restrict buf, char **nextc, char **end, const 
                 bufsize, FILE *restrict fp) {
   (*nextc) += skipn - 1;
   if (*nextc >= *end) {
-    size_t count = fread(buf, 1, bufsize, fp);
-    if (count <= 0)
-      return EOF;
-    page_ofs++;
     skipn = *nextc - *end;
-    *end = buf + count;
-    *nextc = buf;
+    if (readmore(buf, nextc, end, bufsize, fp) <= 0)
+	  return EOF;
     return skip(skipn + 1, buf, nextc, end, bufsize, fp);
   }
   char c = **nextc;
   (*nextc)++;
   return c;
+}
+inline long long scanuntil(char delim, char *restrict buf, char **nextc, char **end, const size_t
+						bufsize, FILE *restrict fp) {
+  long long start = _pos(buf, bufsize, *nextc);
+  do {
+	if (*nextc == *end) {
+	  if (readmore(buf, nextc, end, bufsize, fp) <= 0)
+		break;
+	}
+  } while (*((*nextc)++) != delim);
+  return _pos(buf, bufsize, *nextc) - start;
 }
 
 int main(int argc, char** argv) {
@@ -147,10 +160,19 @@ int main(int argc, char** argv) {
 			  _pos(buf, BUFSIZE, nextc), argv[argc - 1]);
 	  exit(1);
 	}
-	while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
+	(void)scanuntil('\n', buf, &nextc, &end, BUFSIZE, fq);
 	// <seq>
-	while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '+')
-	  if (c == '\n') newlines++; else seq_len++;
+	do {
+	  seq_len += scanuntil('\n', buf, &nextc, &end, BUFSIZE, fq) - 1;
+	  newlines++;
+	  c = nextchar(buf, &nextc, &end, BUFSIZE, fq);
+	  if (c == '+')
+		break;
+	  if (c == '\n')
+		newlines++;
+	  else
+		seq_len++;
+	} while (1);
 
 	// Update Counts
 	total_seqs++;
@@ -172,7 +194,7 @@ int main(int argc, char** argv) {
 	}
 
 	// +[<seqname>] (+ already consumed)
-	while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
+	(void)scanuntil('\n', buf, &nextc, &end, BUFSIZE, fq);
 
 	// <qual>
 	c = skip(seq_len + newlines, buf, &nextc, &end, BUFSIZE, fq);
