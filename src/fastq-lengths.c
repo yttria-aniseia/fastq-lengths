@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSION "0.2.6"
+#define VERSION "0.2.7"
 //#define DEBUG 1
 void usage(const char* cmd) {
   fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
@@ -50,6 +50,8 @@ void find_median(const void *ptr, VISIT order, __attribute__((unused)) int level
 
 long long page_ofs = -1;
 inline long long _pos(char *buf, const size_t bufsize, const char *nextc) {
+  if (page_ofs == -1)
+	return 0;
   return page_ofs * (long long)bufsize + (nextc - buf);
 }
 inline int nextchar(char *buf, char **nextc, char **end, const size_t
