@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSION "0.2.1"
+#define VERSION "0.2.5"
 //#define DEBUG 1
 void usage(const char* cmd) {
   	fprintf(stderr, "https://github.com/yttria-aniseia/fastq-lengths (v%s)\n\
@@ -47,7 +47,45 @@ void find_median(const void *ptr, VISIT order, __attribute__((unused)) int level
   }
 }
 
+inline int nextchar(char *restrict buf, char **nextc, char **end, const size_t
+					bufsize, FILE *restrict fp) {
+  if (*nextc == *end) {
+	size_t count = fread(buf, 1, bufsize, fp);
+	if (count <= 0)
+	  return EOF;
+	*end = buf + count;
+	*nextc = buf;
+  }
+  char c = **nextc;
+  (*nextc)++;
+  return c;
+}
+inline int skip(long skipn, char *restrict buf, char **nextc, char **end, const size_t
+				bufsize, FILE *restrict fp) {
+  (*nextc) += skipn - 1;
+  if (*nextc >= *end) {
+	size_t count = fread(buf, 1, bufsize, fp);
+	if (count <= 0)
+	  return EOF;
+	skipn = *nextc - *end;
+	*end = buf + count;
+	*nextc = buf;
+	return skip(skipn + 1, buf, nextc, end, bufsize, fp);
+  }
+  char c = **nextc;
+  (*nextc)++;
+  return c;
+}  
+
 int main(int argc, char** argv) {
+  const size_t BUFSIZE = 16 * 1024;
+  char *const buf = malloc(BUFSIZE);
+  char *end = buf; char *nextc = buf;
+  if (buf == NULL) {
+	fprintf(stderr, "could not allocate buffer!");
+	exit(errno);
+  }
+
   long long stop_after = -1;
   enum subcommand cmd = LENGTHS;
   switch (argc) {
@@ -95,16 +133,16 @@ int main(int argc, char** argv) {
   do {
 	seq_len = 0; newlines = 0;
 	// @<seqname>
-	if (fgetc(fq) != '@') {
+	if (nextchar(buf, &nextc, &end, BUFSIZE, fq) != '@') {
 	  if (feof(fq)) break;
 	  fprintf(stderr, "error: expected @<seqname> line (pos %lli): %s\n",
 			  pos, argv[argc - 1]);
 	  exit(1);
 	}
 	pos++;
-	do pos++; while ((c = (char)fgetc(fq)) != EOF && c != '\n');
+	do pos++; while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
 	// <seq>
-	while ((c = (char)fgetc(fq)) != EOF && c != '+')
+	while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '+')
 	  if (c == '\n') newlines++; else seq_len++;
 	pos += newlines + seq_len + 1;
 	
@@ -128,13 +166,12 @@ int main(int argc, char** argv) {
 	}
 
 	// +[<seqname>] (+ already consumed)
-	do pos++; while ((c = (char)fgetc(fq)) != EOF && c != '\n');
+	do pos++; while ((c = (char)nextchar(buf, &nextc, &end, BUFSIZE, fq)) && c != '\n');
 
 	// <qual>
-	long skip = seq_len + newlines;
-	while (skip--) (void)fgetc(fq);
+	c = skip(seq_len + newlines, buf, &nextc, &end, BUFSIZE, fq);
 	pos += seq_len + newlines;
-  } while (!feof(fq) && (total_seqs != stop_after));
+  } while (c != EOF && (total_seqs != stop_after));
 
   if (ferror(fq) || errno) {
 	fprintf(stderr, "error: %i (errno %i) occurred while parsing %s",
